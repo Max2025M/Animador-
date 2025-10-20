@@ -1,7 +1,9 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response
-import os, torch, ffmpeg
-from diffusers import AnimateDiffPipeline
-from tqdm import tqdm
+import os
+import torch
+from diffusers import StableDiffusionPipeline
+import ffmpeg
+from PIL import Image
 
 app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
@@ -9,10 +11,10 @@ OUTPUT_FOLDER = "outputs"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# Inicializa modelo AnimateDiff
-print("Carregando modelo AnimateDiff leve...")
-pipe = AnimateDiffPipeline.from_pretrained(
-    "guoyww/animatediff-motion-adapter-v1-5-2",
+# Carrega o modelo ReV-Animated
+print("Carregando modelo ReV-Animated...")
+pipe = StableDiffusionPipeline.from_pretrained(
+    "s6yx/ReV_Animated",
     torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
 )
 pipe = pipe.to("cuda" if torch.cuda.is_available() else "cpu")
@@ -54,22 +56,22 @@ def generate():
 
     num_frames = int(duration * 10)
 
-    # === Função de callback para atualizar progresso ===
+    # Função de callback para atualizar progresso
     def progress_callback(frame_index, total_frames):
         progress_dict[task_id] = int((frame_index / total_frames) * 100)
 
     # Geração de vídeo
     video = pipe(
         prompt=prompt,
-        image=input_path,
-        num_frames=num_frames,
-        motion_field_strength=speed,
-        guidance_scale=4.5,
+        init_image=input_path,
+        num_inference_steps=num_frames,
+        strength=0.75,
+        guidance_scale=7.5,
         callback=progress_callback
     )
 
     # Salva vídeo temporário
-    video["video"].save(temp_video_path)
+    video["sample"][0].save(temp_video_path)
 
     # Converte vídeo com ffmpeg para compatibilidade
     (
