@@ -16,6 +16,9 @@ WORKDIR /app
 # Copia os arquivos do projeto para o contêiner
 COPY . .
 
+# Atualiza o pip antes de instalar dependências
+RUN pip install --upgrade pip
+
 # Instala as dependências do Python
 RUN pip install --no-cache-dir -r requirements.txt
 
