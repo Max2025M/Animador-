@@ -1,8 +1,10 @@
-flask
-flask-cors
-torch
-transformers
+flask==3.0.3
+flask-cors==4.0.0
+torch==2.3.1
+torchvision==0.18.1
+torchaudio==2.3.1
+transformers==4.44.0
 diffusers==0.29.0
-accelerate
-ffmpeg-python
-tqdm
+accelerate==0.33.0
+ffmpeg-python==0.2.0
+tqdm==4.66.5
