@@ -25,7 +25,7 @@
     max-width: 600px;
     text-align: center;
   }
-  h1 { margin-bottom: 20px; }
+  h1 { margin-bottom: 20px; font-size: 28px; }
   input, button {
     width: 80%;
     padding: 10px;
@@ -33,27 +33,42 @@
     border-radius: 10px;
     border: 1px solid #ccc;
     font-size: 16px;
+    box-sizing: border-box;
   }
   button {
     background-color: #4caf50;
     color: white;
     border: none;
     cursor: pointer;
+    font-weight: bold;
   }
   button:hover { background-color: #45a049; }
-  .progress { width: 80%; height: 20px; background-color: #eee; border-radius: 10px; margin: 20px auto; overflow: hidden; }
-  .progress-fill { height: 100%; width: 0%; background-color: #4caf50; transition: width 0.1s; }
+  .progress {
+    width: 80%;
+    height: 20px;
+    background-color: #eee;
+    border-radius: 10px;
+    margin: 20px auto;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background-color: #4caf50;
+    transition: width 0.1s linear;
+  }
   #result { margin-top: 20px; display:none; }
+  video { border-radius: 10px; margin-top: 10px; }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>🌊 Animate Anything IA</h1>
   <form id="animateForm">
-    <input type="file" name="image" required>
-    <input type="text" name="prompt" placeholder="ex: água se movendo suavemente" required>
-    <input type="number" name="duration" min="2" max="10" value="4">
-    <input type="number" step="0.1" name="speed" min="0.2" max="2" value="1.0">
+    <input type="file" name="image" accept="image/*" required>
+    <input type="text" name="prompt" placeholder="Ex: ondas suaves no mar" required>
+    <input type="number" name="duration" min="2" max="10" value="4" placeholder="Duração (s)">
+    <input type="number" step="0.1" name="speed" min="0.2" max="2" value="1.0" placeholder="Velocidade">
     <button type="submit">🎬 Gerar Vídeo</button>
   </form>
 
@@ -82,7 +97,7 @@ form.addEventListener("submit", async (e) => {
   const task_id = Math.random().toString(36).substring(2);
   data.append("task_id", task_id);
 
-  // SSE para progresso
+  // SSE para barra de progresso
   const evtSource = new EventSource(`/progress/${task_id}`);
   evtSource.onmessage = function(event) {
     progressFill.style.width = event.data + "%";
