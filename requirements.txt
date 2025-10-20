@@ -3,5 +3,5 @@ torch==2.1.0
 diffusers==0.29.0
 transformers==4.30.0
 accelerate==0.21.0
-ffmpeg-python==4.5.1
+ffmpeg-python==0.2.0
 tqdm==4.65.0
