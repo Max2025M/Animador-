@@ -1,173 +1,156 @@
-import os
-import uuid
-import threading
-from pathlib import Path
-from flask import Flask, request, jsonify, send_file, render_template
-from pydub import AudioSegment
-import numpy as np
-import cv2
-import moviepy.editor as mpy
-import librosa
-import soundfile as sf
-import mediapipe as mp
-import time
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Avatar Automático</title>
+<script src="https://unpkg.com/wavesurfer.js"></script>
+<style>
+body {margin:0;font-family:Arial,sans-serif;background:#121212;color:#fff;}
+.container{max-width:480px;margin:auto;padding:15px;}
+header{text-align:center;margin-bottom:20px;}
+header h1{font-size:1.8em;color:#7c5cff;margin:0;}
+header p{font-size:0.9em;color:#aaa;margin-top:5px;}
+section{background:#1e1e2f;padding:15px;border-radius:10px;margin-bottom:15px;}
+.preview img{max-width:100%;border-radius:8px;margin-top:10px;}
+audio{width:100%;margin-top:10px;}
+input[type=file], button{width:100%;padding:10px;margin-top:10px;border-radius:8px;border:none;background:#7c5cff;color:#fff;font-weight:bold;cursor:pointer;}
+button:disabled{opacity:0.5;cursor:not-allowed;}
+.waveform-container{margin-top:10px;}
+.progress-bar {width:100%;background:#333;border-radius:8px;margin-top:10px;overflow:hidden;}
+.progress-bar-inner {width:0%;height:15px;background:#4fa3ff;text-align:center;color:#fff;font-size:12px;line-height:15px;transition:width 0.3s;}
+.result-area video{width:100%;margin-top:10px;border-radius:8px;}
+.download-link {display:block;margin-top:5px;text-align:center;background:#4fa3ff;color:#fff;padding:10px;border-radius:8px;text-decoration:none;}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+<h1>Avatar Automático</h1>
+<p>Carregue imagem e áudio, corte o áudio e gere vídeo animado automaticamente</p>
+</header>
 
-# Salvando na área de trabalho do usuário
-DESKTOP = Path.home() / "Desktop"
-UPLOAD_DIR = DESKTOP / "avatar_uploads"
-OUTPUT_DIR = DESKTOP / "avatar_outputs"
-UPLOAD_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+<section>
+<h2>Imagem</h2>
+<input type="file" id="imageInput" accept="image/*">
+<div class="preview">
+<img id="imgPreview" src="" style="display:none;">
+<p id="imgEmpty">Nenhuma imagem carregada</p>
+</div>
+</section>
 
-app = Flask(__name__, static_folder="static", template_folder="templates")
-JOBS = {}
-mp_face = mp.solutions.face_mesh
+<section>
+<h2>Áudio</h2>
+<input type="file" id="audioInput" accept="audio/*">
+<div class="waveform-container" id="waveform"></div>
+<audio id="audioPreview" controls></audio>
+<div style="margin-top:10px;">
+<label>Início(s): <input type="number" id="startTime" step="0.1" value="0"></label>
+<label>Fim(s): <input type="number" id="endTime" step="0.1" value="0"></label>
+</div>
+</section>
 
-# -------------------
-def trim_audio(in_path, out_path, start_ms=0, end_ms=None):
-    audio = AudioSegment.from_file(in_path)
-    trimmed = audio[start_ms:] if end_ms is None else audio[start_ms:end_ms]
-    trimmed.export(out_path, format="wav")
-    return out_path
+<section>
+<button id="generateBtn">Gerar vídeo</button>
 
-def amplitude_envelope(wav_path, sr=16000, hop_length=512):
-    y, sr = librosa.load(wav_path, sr=sr)
-    env = np.array([np.max(np.abs(y[i:i+hop_length])) for i in range(0, len(y), hop_length)])
-    if env.max() > 0: env = env / env.max()
-    return env, sr
+<div id="statusBox" style="margin-top:10px; display:none;">
+<p>Status: <span id="statusText">Aguardando...</span></p>
+<div class="progress-bar">
+    <div class="progress-bar-inner" id="progressInner">0%</div>
+</div>
+</div>
 
-def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
-                       mouth_amp=0.6, head_amp=3.0):
-    try:
-        img = cv2.imread(str(image_path))
-        h, w = img.shape[:2]
+<div id="resultArea" class="result-area" style="display:none; margin-top:10px;">
+<h3>Vídeo gerado</h3>
+<video id="outVideo" controls></video>
+<a id="downloadLink" href="#" download class="download-link">Baixar MP4</a>
+</div>
+</section>
+</div>
 
-        with mp_face.FaceMesh(static_image_mode=True, max_num_faces=1, refine_landmarks=True) as face_mesh:
-            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            results = face_mesh.process(rgb)
-            if results.multi_face_landmarks:
-                lm = results.multi_face_landmarks[0].landmark
-                mouth_inds = [61, 291, 13, 14, 78, 308, 82, 312]
-                xs = [int(lm[i].x*w) for i in mouth_inds]
-                ys = [int(lm[i].y*h) for i in mouth_inds]
-                x1, x2 = min(xs), max(xs)
-                y1, y2 = min(ys), max(ys)
-                pad_x = max(6, int((x2-x1)*0.3))
-                pad_y = max(6, int((y2-y1)*0.6))
-                mouth_box = (max(0,x1-pad_x), max(0,y1-pad_y), min(w,x2+pad_x), min(h,y2+pad_y))
-            else:
-                cx, cy = w//2, h//2
-                mouth_box = (int(cx- w*0.15), int(cy + h*0.05), int(cx + w*0.15), int(cy + h*0.25))
+<script>
+let currentImagePath=null;
+let currentAudioPath=null;
+let wavesurfer = WaveSurfer.create({
+    container:'#waveform',
+    waveColor:'#7c5cff',
+    progressColor:'#4fa3ff',
+    cursorColor:'#fff',
+    height:80
+});
 
-        env, sr = amplitude_envelope(audio_path, sr=16000)
-        audio_info = sf.info(audio_path)
-        duration = audio_info.duration
-        total_frames = max(1, int(duration*fps))
-        frames = []
-        env_frame = np.interp(np.linspace(0,len(env)-1,total_frames), np.arange(len(env)), env)
+function uploadFile(url,file,fieldName='file'){
+    const fd = new FormData(); fd.append(fieldName,file);
+    return fetch(url,{method:'POST',body:fd}).then(res=>res.json());
+}
 
-        for i in range(total_frames):
-            frame = img.copy()
-            # Cabeça
-            theta = np.deg2rad(head_amp * np.sin(2*np.pi*(i/total_frames)*1.2))
-            cos_t, sin_t = np.cos(theta), np.sin(theta)
-            M_rot = np.array([[cos_t,-sin_t,0],[sin_t,cos_t,0]],dtype=np.float32)
-            cx, cy = w//2, h//2
-            M_rot[0,2] = (1 - cos_t)*cx - sin_t*cy
-            M_rot[1,2] = sin_t*cx + (1 - cos_t)*cy
-            frame = cv2.warpAffine(frame, M_rot, (w,h), borderMode=cv2.BORDER_REFLECT)
+// IMAGEM
+const imageInput=document.getElementById('imageInput');
+const imgPreview=document.getElementById('imgPreview');
+const imgEmpty=document.getElementById('imgEmpty');
+imageInput.addEventListener('change',async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    imgEmpty.style.display='none'; imgPreview.style.display='block'; imgPreview.src=URL.createObjectURL(f);
+    const data=await uploadFile('/upload_image',f,'image'); 
+    if(data.img_path) currentImagePath=data.img_path;
+});
 
-            # Boca
-            x1,y1,x2,y2 = mouth_box
-            mouth_roi = frame[y1:y2, x1:x2].copy()
-            if mouth_roi.size !=0:
-                mh, mw = mouth_roi.shape[:2]
-                scale = 1.0 + mouth_amp*float(env_frame[i])
-                new_h = max(2,int(mh*scale))
-                resized = cv2.resize(mouth_roi,(mw,new_h),interpolation=cv2.INTER_LINEAR)
-                ystart = max(0, y1 - (new_h-mh)//2)
-                yend = ystart + new_h
-                if yend <= frame.shape[0]:
-                    overlay = frame.copy()
-                    overlay[ystart:yend, x1:x2] = resized
-                    frame = cv2.addWeighted(overlay, 0.95, frame, 0.05,0)
+// AUDIO
+const audioInput=document.getElementById('audioInput');
+const audioPreview=document.getElementById('audioPreview');
+const startTime=document.getElementById('startTime');
+const endTime=document.getElementById('endTime');
+audioInput.addEventListener('change',async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const data=await uploadFile('/upload_audio',f,'audio'); 
+    if(data.audio_path) currentAudioPath=data.audio_path;
+    const url=URL.createObjectURL(f); wavesurfer.load(url); audioPreview.src=url;
+    wavesurfer.on('ready',()=>{startTime.value=0;endTime.value=wavesurfer.getDuration().toFixed(2);});
+});
 
-            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+// GERAR VÍDEO
+const generateBtn=document.getElementById('generateBtn');
+const statusBox=document.getElementById('statusBox');
+const statusText=document.getElementById('statusText');
+const progressInner=document.getElementById('progressInner');
+const resultArea=document.getElementById('resultArea');
+const outVideo=document.getElementById('outVideo');
+const downloadLink=document.getElementById('downloadLink');
 
-            # Atualiza progresso
-            JOBS[job_id]["status"] = f"{int((i+1)/total_frames*100)}%"
-
-        clip = mpy.ImageSequenceClip(frames,fps=fps)
-        clip = clip.set_audio(mpy.AudioFileClip(str(audio_path)))
-        clip.write_videofile(str(out_path), codec="libx264", audio_codec="aac", verbose=False, logger=None)
-        JOBS[job_id]["status"] = "100% video finalizado"
-    finally:
-        # Remove temporários
-        try: os.remove(image_path)
-        except: pass
-        try: os.remove(audio_path)
-        except: pass
-
-# -----------------
-@app.route("/")
-def index():
-    return render_template("index.html")
-
-@app.route("/upload_image", methods=["POST"])
-def upload_image():
-    file = request.files.get("image")
-    if not file: return jsonify({"error":"Nenhum arquivo enviado"}),400
-    # Nome curto
-    fname = f"img_{uuid.uuid4().hex[:6]}.png"
-    path = UPLOAD_DIR / fname
-    file.save(path)
-    return jsonify({"img_path": str(path)})
-
-@app.route("/upload_audio", methods=["POST"])
-def upload_audio():
-    file = request.files.get("audio")
-    if not file: return jsonify({"error":"Nenhum arquivo enviado"}),400
-    # Nome curto
-    fname = f"aud_{uuid.uuid4().hex[:6]}.wav"
-    path = UPLOAD_DIR / fname
-    file.save(path)
-    return jsonify({"audio_path": str(path)})
-
-@app.route("/generate", methods=["POST"])
-def generate():
-    image_path = request.form.get("image_path")
-    audio_path = request.form.get("audio_path")
-    start = float(request.form.get("start",0))
-    end = float(request.form.get("end",0))
-    job_id = f"{uuid.uuid4().hex}.mp4"
-    out_path = OUTPUT_DIR / job_id
-
-    def worker():
-        temp_audio = UPLOAD_DIR / f"tmp_{uuid.uuid4().hex[:6]}.wav"
-        try:
-            trim_audio(audio_path,temp_audio,int(start*1000),int(end*1000))
-            generate_animation(image_path, temp_audio, out_path, job_id)
-            JOBS[job_id] = {"status":"done"}
-        except Exception as e:
-            JOBS[job_id] = {"status":"error", "error":str(e)}
-        finally:
-            try: os.remove(temp_audio)
-            except: pass
-
-    JOBS[job_id] = {"status":"0%"}
-    threading.Thread(target=worker).start()
-    return jsonify({"job": job_id})
-
-@app.route("/status/<job_id>")
-def status(job_id):
-    return jsonify(JOBS.get(job_id, {"status":"unknown"}))
-
-@app.route("/output/<job_id>")
-def output(job_id):
-    path = OUTPUT_DIR / job_id
-    if path.exists():
-        return send_file(path, as_attachment=True)
-    return "Arquivo não encontrado",404
-
-if __name__=="__main__":
-    app.run(host="0.0.0.0", port=5000)
+generateBtn.addEventListener('click',async()=>{
+    if(!currentImagePath||!currentAudioPath){alert('Carregue imagem e áudio antes');return;}
+    const form=new FormData();
+    form.append('image_path',currentImagePath);
+    form.append('audio_path',currentAudioPath);
+    form.append('start',startTime.value);
+    form.append('end',endTime.value);
+    const resp=await fetch('/generate',{method:'POST',body:form});
+    const j=await resp.json(); if(!j.job){alert('Erro');return;}
+    
+    statusBox.style.display='block'; 
+    progressInner.style.width='0%'; progressInner.innerText='0%';
+    statusText.innerText='Processando...';
+    resultArea.style.display='none';
+    
+    const interval=setInterval(async()=>{
+        const sres=await fetch('/status/'+j.job); 
+        const sjson=await sres.json();
+        let st = sjson.status || "0%";
+        statusText.innerText = st;
+        if(st.endsWith('%')){
+            progressInner.style.width = st;
+            progressInner.innerText = st;
+        }
+        if(st==='done' || st==='100% video finalizado'){
+            clearInterval(interval); 
+            progressInner.style.width='100%'; progressInner.innerText='100%';
+            resultArea.style.display='block'; 
+            outVideo.src='/output/'+j.job; 
+            downloadLink.href='/output/'+j.job;
+        }
+        if(st==='error'){clearInterval(interval); statusText.innerText='Erro: '+sjson.error;}
+    },500);
+});
+</script>
+</body>
+</html>
