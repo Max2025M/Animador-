@@ -1,7 +1,6 @@
-# Imagem base leve com Python 3.11
 FROM python:3.11-slim
 
-# Instala dependências do sistema para OpenCV, FFmpeg e MoviePy
+# Dependências do sistema
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsm6 \
@@ -11,21 +10,18 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Diretório de trabalho
 WORKDIR /app
 
-# Copia requirements.txt
+# Copia requirements
 COPY requirements.txt .
 
 # Atualiza pip e instala dependências Python
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia código da aplicação
+# Copia código
 COPY . .
 
-# Expõe porta do Flask
 EXPOSE 5000
 
-# Comando para iniciar
 CMD ["python", "app.py"]
