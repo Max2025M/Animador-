@@ -11,18 +11,19 @@ import librosa
 import soundfile as sf
 import mediapipe as mp
 
-# Salvar uploads e outputs na área de trabalho
-DESKTOP = Path.home() / "Desktop"
-UPLOAD_DIR = DESKTOP / "avatar_uploads"
-OUTPUT_DIR = DESKTOP / "avatar_outputs"
-UPLOAD_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+# ----------------------------
+# Diretórios relativos (funciona em Render/Docker)
+BASE_DIR = Path(__file__).parent.resolve()
+UPLOAD_DIR = BASE_DIR / "uploads"
+OUTPUT_DIR = BASE_DIR / "outputs"
+UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
+OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 JOBS = {}
 mp_face = mp.solutions.face_mesh
 
-# -------------------
+# ----------------------------
 def trim_audio(in_path, out_path, start_ms=0, end_ms=None):
     audio = AudioSegment.from_file(in_path)
     trimmed = audio[start_ms:] if end_ms is None else audio[start_ms:end_ms]
@@ -107,7 +108,7 @@ def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
         try: os.remove(audio_path)
         except: pass
 
-# -----------------
+# ----------------------------
 @app.route("/")
 def index():
     return render_template("index.html")
