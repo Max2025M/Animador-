@@ -10,6 +10,7 @@ import moviepy.editor as mpy
 import librosa
 import soundfile as sf
 import mediapipe as mp
+import random
 
 # ----------------------------
 # Diretórios relativos (funciona em Render/Docker)
@@ -37,8 +38,9 @@ def amplitude_envelope(wav_path, sr=16000, hop_length=512):
         env = env / env.max()
     return env, sr
 
+# ----------------------------
 def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
-                       mouth_amp=0.6, head_amp=3.0):
+                       mouth_amp=0.6, head_amp=3.0, eye_amp=0.2, brow_amp=1.5):
     try:
         img = cv2.imread(str(image_path))
         h, w = img.shape[:2]
@@ -48,6 +50,7 @@ def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
             results = face_mesh.process(rgb)
             if results.multi_face_landmarks:
                 lm = results.multi_face_landmarks[0].landmark
+                # Boca
                 mouth_inds = [61, 291, 13, 14, 78, 308, 82, 312]
                 xs = [int(lm[i].x*w) for i in mouth_inds]
                 ys = [int(lm[i].y*h) for i in mouth_inds]
@@ -56,9 +59,25 @@ def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
                 pad_x = max(6, int((x2-x1)*0.3))
                 pad_y = max(6, int((y2-y1)*0.6))
                 mouth_box = (max(0,x1-pad_x), max(0,y1-pad_y), min(w,x2+pad_x), min(h,y2+pad_y))
+
+                # Olhos
+                left_eye_inds = [159,145]  # superior e inferior
+                right_eye_inds = [386,374]
+                left_eye_box = [int(lm[i].x*w) for i in left_eye_inds] + [int(lm[i].y*h) for i in left_eye_inds]
+                right_eye_box = [int(lm[i].x*w) for i in right_eye_inds] + [int(lm[i].y*h) for i in right_eye_inds]
+
+                # Sobrancelhas
+                left_brow_inds = [70,63]
+                right_brow_inds = [300,293]
+                left_brow_box = [int(lm[i].x*w) for i in left_brow_inds] + [int(lm[i].y*h) for i in left_brow_inds]
+                right_brow_box = [int(lm[i].x*w) for i in right_brow_inds] + [int(lm[i].y*h) for i in right_brow_inds]
+
             else:
+                # fallback
                 cx, cy = w//2, h//2
                 mouth_box = (int(cx- w*0.15), int(cy + h*0.05), int(cx + w*0.15), int(cy + h*0.25))
+                left_eye_box = right_eye_box = [cx-20,cx+20,cy-10,cy+10]
+                left_brow_box = right_brow_box = [cx-20,cx+20,cy-30,cy-20]
 
         env, sr = amplitude_envelope(audio_path, sr=16000)
         audio_info = sf.info(audio_path)
@@ -69,7 +88,8 @@ def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
 
         for i in range(total_frames):
             frame = img.copy()
-            # Cabeça
+
+            # ----------------- Cabeça
             theta = np.deg2rad(head_amp * np.sin(2*np.pi*(i/total_frames)*1.2))
             cos_t, sin_t = np.cos(theta), np.sin(theta)
             M_rot = np.array([[cos_t,-sin_t,0],[sin_t,cos_t,0]],dtype=np.float32)
@@ -78,7 +98,7 @@ def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
             M_rot[1,2] = sin_t*cx + (1 - cos_t)*cy
             frame = cv2.warpAffine(frame, M_rot, (w,h), borderMode=cv2.BORDER_REFLECT)
 
-            # Boca
+            # ----------------- Boca
             x1,y1,x2,y2 = mouth_box
             mouth_roi = frame[y1:y2, x1:x2].copy()
             if mouth_roi.size !=0:
@@ -93,7 +113,23 @@ def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
                     overlay[ystart:yend, x1:x2] = resized
                     frame = cv2.addWeighted(overlay, 0.95, frame, 0.05,0)
 
+            # ----------------- Piscar olhos
+            blink_prob = 0.02 + 0.3*float(env_frame[i])  # mais alto para sons fortes
+            blink = random.random() < blink_prob
+            for eye_box in [left_eye_box, right_eye_box]:
+                ex1, ex2, ey1, ey2 = eye_box[0], eye_box[1], eye_box[2], eye_box[3]
+                if blink:
+                    mid_y = (ey1+ey2)//2
+                    frame[ey1:ey2,ex1:ex2] = frame[mid_y:mid_y+1, ex1:ex2]
+
+            # ----------------- Sobrancelhas
+            for brow_box in [left_brow_box,right_brow_box]:
+                bx1,bx2,by1,by2 = brow_box[0],brow_box[1],brow_box[2],brow_box[3]
+                offset = int(env_frame[i]*brow_amp)
+                frame[by1-offset:by2-offset,bx1:bx2] = frame[by1:by2,bx1:bx2]
+
             frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
             # Atualiza progresso
             JOBS[job_id]["status"] = f"{int((i+1)/total_frames*100)}%"
 
@@ -102,7 +138,6 @@ def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
         clip.write_videofile(str(out_path), codec="libx264", audio_codec="aac", verbose=False, logger=None)
         JOBS[job_id]["status"] = "100% video finalizado"
     finally:
-        # Remove arquivos temporários de upload
         try: os.remove(image_path)
         except: pass
         try: os.remove(audio_path)
