@@ -1,7 +1,7 @@
 Flask
 numpy
 opencv-python-headless
-moviepy
+moviepy==1.0.3
 pydub
 librosa
 soundfile
