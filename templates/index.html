@@ -1,116 +1,117 @@
 <!DOCTYPE html>
-<html lang="pt">
+<html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🌊 Animate Anything IA</title>
+<title>Avatar Automático</title>
+<script src="https://unpkg.com/wavesurfer.js"></script>
 <style>
-  body {
-    font-family: 'Arial', sans-serif;
-    background: linear-gradient(135deg, #89f7fe, #66a6ff);
-    margin: 0;
-    padding: 0;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    min-height: 100vh;
-  }
-  .container {
-    background: rgba(255,255,255,0.95);
-    padding: 30px;
-    margin-top: 50px;
-    border-radius: 20px;
-    box-shadow: 0 8px 25px rgba(0,0,0,0.2);
-    width: 90%;
-    max-width: 600px;
-    text-align: center;
-  }
-  h1 { margin-bottom: 20px; font-size: 28px; }
-  input, button {
-    width: 80%;
-    padding: 10px;
-    margin: 10px 0;
-    border-radius: 10px;
-    border: 1px solid #ccc;
-    font-size: 16px;
-    box-sizing: border-box;
-  }
-  button {
-    background-color: #4caf50;
-    color: white;
-    border: none;
-    cursor: pointer;
-    font-weight: bold;
-  }
-  button:hover { background-color: #45a049; }
-  .progress {
-    width: 80%;
-    height: 20px;
-    background-color: #eee;
-    border-radius: 10px;
-    margin: 20px auto;
-    overflow: hidden;
-  }
-  .progress-fill {
-    height: 100%;
-    width: 0%;
-    background-color: #4caf50;
-    transition: width 0.1s linear;
-  }
-  #result { margin-top: 20px; display:none; }
-  video { border-radius: 10px; margin-top: 10px; }
+body {margin:0;font-family:Arial,sans-serif;background:#121212;color:#fff;}
+.container{max-width:480px;margin:auto;padding:15px;}
+header{text-align:center;margin-bottom:20px;}
+header h1{font-size:1.8em;color:#7c5cff;margin:0;}
+header p{font-size:0.9em;color:#aaa;margin-top:5px;}
+section{background:#1e1e2f;padding:15px;border-radius:10px;margin-bottom:15px;}
+.preview img{max-width:100%;border-radius:8px;margin-top:10px;}
+audio{width:100%;margin-top:10px;}
+input[type=file], button{width:100%;padding:10px;margin-top:10px;border-radius:8px;border:none;background:#7c5cff;color:#fff;font-weight:bold;cursor:pointer;}
+button:disabled{opacity:0.5;cursor:not-allowed;}
+.waveform-container{margin-top:10px;}
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>🌊 Animate Anything IA</h1>
-  <form id="animateForm">
-    <input type="file" name="image" accept="image/*" required>
-    <input type="text" name="prompt" placeholder="Ex: ondas suaves no mar" required>
-    <input type="number" name="duration" min="2" max="10" value="4" placeholder="Duração (s)">
-    <input type="number" step="0.1" name="speed" min="0.2" max="2" value="1.0" placeholder="Velocidade">
-    <button type="submit">🎬 Gerar Vídeo</button>
-  </form>
+<header>
+<h1>Avatar Automático</h1>
+<p>Carregue imagem e áudio, corte o áudio e gere vídeo animado automaticamente</p>
+</header>
 
-  <div class="progress">
-    <div class="progress-fill"></div>
-  </div>
+<section>
+<h2>Imagem</h2>
+<input type="file" id="imageInput" accept="image/*">
+<div class="preview">
+<img id="imgPreview" src="" style="display:none;">
+<p id="imgEmpty">Nenhuma imagem carregada</p>
+</div>
+</section>
 
-  <div id="result">
-    <h3>✅ Vídeo Gerado:</h3>
-    <video id="outputVideo" controls width="480"></video>
-  </div>
+<section>
+<h2>Áudio</h2>
+<input type="file" id="audioInput" accept="audio/*">
+<div class="waveform-container" id="waveform"></div>
+<audio id="audioPreview" controls></audio>
+<div>
+<label>Início(s): <input type="number" id="startTime" step="0.1" value="0"></label>
+<label>Fim(s): <input type="number" id="endTime" step="0.1" value="0"></label>
+</div>
+</section>
+
+<section>
+<button id="generateBtn">Gerar vídeo</button>
+<div id="statusBox" style="margin-top:10px; display:none;">
+<p>Status: <span id="statusText">Aguardando...</span></p>
+</div>
+<div id="resultArea" style="display:none; margin-top:10px;">
+<h3>Vídeo gerado</h3>
+<video id="outVideo" controls style="width:100%;"></video>
+<a id="downloadLink" href="#" download style="display:block; margin-top:5px; text-align:center; background:#4fa3ff; color:#fff; padding:10px; border-radius:8px; text-decoration:none;">Baixar MP4</a>
+</div>
+</section>
 </div>
 
 <script>
-const form = document.getElementById("animateForm");
-const progressFill = document.querySelector(".progress-fill");
-const resultDiv = document.getElementById("result");
-const video = document.getElementById("outputVideo");
+let currentImagePath=null;
+let currentAudioPath=null;
+let wavesurfer = WaveSurfer.create({container:'#waveform',waveColor:'#7c5cff',progressColor:'#4fa3ff',cursorColor:'#fff',height:80});
 
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  progressFill.style.width = "0%";
-  resultDiv.style.display = "none";
+function uploadFile(url,file,fieldName='file'){
+    const fd = new FormData(); fd.append(fieldName,file);
+    return fetch(url,{method:'POST',body:fd}).then(res=>res.json());
+}
 
-  const data = new FormData(form);
-  const task_id = Math.random().toString(36).substring(2);
-  data.append("task_id", task_id);
+const imageInput=document.getElementById('imageInput');
+const imgPreview=document.getElementById('imgPreview');
+const imgEmpty=document.getElementById('imgEmpty');
+imageInput.addEventListener('change',async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    imgEmpty.style.display='none'; imgPreview.style.display='block'; imgPreview.src=URL.createObjectURL(f);
+    const data=await uploadFile('/upload_image',f,'image'); if(data.img_path) currentImagePath=data.img_path;
+});
 
-  // SSE para barra de progresso
-  const evtSource = new EventSource(`/progress/${task_id}`);
-  evtSource.onmessage = function(event) {
-    progressFill.style.width = event.data + "%";
-    if (event.data == "100") {
-      evtSource.close();
-    }
-  };
+const audioInput=document.getElementById('audioInput');
+const audioPreview=document.getElementById('audioPreview');
+const startTime=document.getElementById('startTime');
+const endTime=document.getElementById('endTime');
+audioInput.addEventListener('change',async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const data=await uploadFile('/upload_audio',f,'audio'); if(data.audio_path) currentAudioPath=data.audio_path;
+    const url=URL.createObjectURL(f); wavesurfer.load(url); audioPreview.src=url;
+    wavesurfer.on('ready',()=>{startTime.value=0;endTime.value=wavesurfer.getDuration().toFixed(2);});
+});
 
-  const response = await fetch("/generate", { method: "POST", body: data });
-  const result = await response.json();
+const generateBtn=document.getElementById('generateBtn');
+const statusBox=document.getElementById('statusBox');
+const statusText=document.getElementById('statusText');
+const resultArea=document.getElementById('resultArea');
+const outVideo=document.getElementById('outVideo');
+const downloadLink=document.getElementById('downloadLink');
 
-  video.src = result.video;
-  resultDiv.style.display = "block";
+generateBtn.addEventListener('click',async()=>{
+    if(!currentImagePath||!currentAudioPath){alert('Carregue imagem e áudio antes');return;}
+    const form=new FormData();
+    form.append('image_path',currentImagePath);
+    form.append('audio_path',currentAudioPath);
+    form.append('start',startTime.value);
+    form.append('end',endTime.value);
+    const resp=await fetch('/generate',{method:'POST',body:form});
+    const j=await resp.json(); if(!j.job){alert('Erro');return;}
+    statusBox.style.display='block'; statusText.innerText='Gerando vídeo...'; resultArea.style.display='none';
+    const interval=setInterval(async()=>{
+        const sres=await fetch('/status/'+j.job); const sjson=await sres.json();
+        statusText.innerText=sjson.status;
+        if(sjson.status==='done'){clearInterval(interval); resultArea.style.display='block'; outVideo.src='/output/'+j.job; downloadLink.href='/output/'+j.job;}
+        if(sjson.status==='error'){clearInterval(interval); statusText.innerText='Erro: '+sjson.error;}
+    },1000);
 });
 </script>
 </body>
