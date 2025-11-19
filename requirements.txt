@@ -6,3 +6,4 @@ pydub
 librosa
 soundfile
 mediapipe
+imageio[ffmpeg]
