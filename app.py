@@ -10,9 +10,8 @@ import moviepy.editor as mpy
 import librosa
 import soundfile as sf
 import mediapipe as mp
-import time
 
-# Salvando na área de trabalho do usuário
+# Salvar uploads e outputs na área de trabalho
 DESKTOP = Path.home() / "Desktop"
 UPLOAD_DIR = DESKTOP / "avatar_uploads"
 OUTPUT_DIR = DESKTOP / "avatar_outputs"
@@ -33,7 +32,8 @@ def trim_audio(in_path, out_path, start_ms=0, end_ms=None):
 def amplitude_envelope(wav_path, sr=16000, hop_length=512):
     y, sr = librosa.load(wav_path, sr=sr)
     env = np.array([np.max(np.abs(y[i:i+hop_length])) for i in range(0, len(y), hop_length)])
-    if env.max() > 0: env = env / env.max()
+    if env.max() > 0:
+        env = env / env.max()
     return env, sr
 
 def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
@@ -93,7 +93,6 @@ def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
                     frame = cv2.addWeighted(overlay, 0.95, frame, 0.05,0)
 
             frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-
             # Atualiza progresso
             JOBS[job_id]["status"] = f"{int((i+1)/total_frames*100)}%"
 
@@ -102,7 +101,7 @@ def generate_animation(image_path, audio_path, out_path, job_id, fps=25,
         clip.write_videofile(str(out_path), codec="libx264", audio_codec="aac", verbose=False, logger=None)
         JOBS[job_id]["status"] = "100% video finalizado"
     finally:
-        # Remove temporários
+        # Remove arquivos temporários de upload
         try: os.remove(image_path)
         except: pass
         try: os.remove(audio_path)
@@ -117,7 +116,6 @@ def index():
 def upload_image():
     file = request.files.get("image")
     if not file: return jsonify({"error":"Nenhum arquivo enviado"}),400
-    # Nome curto
     fname = f"img_{uuid.uuid4().hex[:6]}.png"
     path = UPLOAD_DIR / fname
     file.save(path)
@@ -127,7 +125,6 @@ def upload_image():
 def upload_audio():
     file = request.files.get("audio")
     if not file: return jsonify({"error":"Nenhum arquivo enviado"}),400
-    # Nome curto
     fname = f"aud_{uuid.uuid4().hex[:6]}.wav"
     path = UPLOAD_DIR / fname
     file.save(path)
